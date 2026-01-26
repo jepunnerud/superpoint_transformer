@@ -1,0 +1,279 @@
+# @package datamodule
+defaults:
+  - /datamodule/semantic/default.yaml
+
+# Bytt til din datamodule-klasse
+_target_: src.datamodules.norway.NorwayDataModule
+
+# ---- Dataset parameterization (for interpolation + model setup) ----
+num_classes: 2            # <-- BYTT til dine (uten ignored)
+stuff_classes: [0, 1]  # <-- for semantic spiller lite rolle, men hold gyldig
+trainval: False
+val_on_test: False
+xy_tiling: 1              # lavt for første forsøk (kan økes)
+
+# ---- Feature lists ----
+partition_hf:
+  - 'linearity'
+  - 'planarity'
+  - 'scattering'
+  - 'elevation'
+
+# Hvis du IKKE har intensity i LAZ, fjern 'intensity' her
+point_hf:
+  - 'intensity'
+  - 'linearity'
+  - 'planarity'
+  - 'scattering'
+  - 'verticality'
+  - 'elevation'
+
+segment_base_hf: []
+segment_mean_hf: []
+segment_std_hf: []
+
+edge_hf:
+  - 'mean_off'
+  - 'std_off'
+  - 'mean_dist'
+
+v_edge_hf: []
+
+# ---- Preprocessing tuning (hold small first) ----
+voxel: 0.2
+knn: 25
+knn_r: 10
+knn_step: -1
+knn_min_search: 10
+
+ground_threshold: 5
+ground_scale: 20
+
+pcp_regularization: [0.1]
+pcp_spatial_weight: [1e-2]
+pcp_cutoff: [30]
+pcp_k_adjacency: 10
+pcp_w_adjacency: 1
+pcp_iterations: 10
+
+graph_k_min: 1
+graph_k_max: 15
+graph_gap: [5, 20, 20]
+graph_se_ratio: 0.3
+graph_se_min: 20
+graph_cycles: 2
+graph_margin: 0.5
+graph_chunk: [5e5, 5e4, 5e4]   # mindre = mindre GPU-minne
+
+# ---- Batch construction (keep tiny) ----
+sample_segment_ratio: 0.2
+sample_segment_by_size: True
+sample_segment_by_class: False
+
+sample_point_min: 32
+sample_point_max: 128
+
+sample_graph_r: 30        # sett <=0 for å disable radius-subgraphs
+sample_graph_k: 2
+sample_graph_disjoint: True
+
+sample_edge_n_min: -1
+sample_edge_n_max: -1
+
+# ---- Augmentations (off for first run) ----
+pos_jitter: 0.0
+tilt_n_rotate_phi: 0.0
+tilt_n_rotate_theta: 0
+anisotropic_scaling: 0.0
+
+node_feat_jitter: 0
+h_edge_feat_jitter: 0
+v_edge_feat_jitter: 0
+
+node_feat_drop: 0
+h_edge_feat_drop: 0
+v_edge_feat_drop: 0
+
+node_row_drop: 0
+h_edge_row_drop: 0
+v_edge_row_drop: 0
+drop_to_mean: False
+
+# ---- Preprocessing pipeline (copy from DALES, trimmed) ----
+pre_transform:
+  - transform: SaveNodeIndex
+    params: { key: 'sub' }
+
+  - transform: DataTo
+    params: { device: 'cuda' }
+
+  - transform: GridSampling3D
+    params:
+      size: ${datamodule.voxel}
+      hist_key: 'y'
+      hist_size: ${eval:'${datamodule.num_classes} + 1'}
+
+  - transform: KNN
+    params:
+      k: ${datamodule.knn}
+      r_max: ${datamodule.knn_r}
+      verbose: False
+
+  - transform: DataTo
+    params: { device: 'cpu' }
+
+  - transform: PointFeatures
+    params:
+      keys: ${datamodule.point_hf_preprocess}
+      k_min: 1
+      k_step: ${datamodule.knn_step}
+      k_min_search: ${datamodule.knn_min_search}
+
+  - transform: GroundElevation
+    params:
+      z_threshold: ${datamodule.ground_threshold}
+      scale: ${datamodule.ground_scale}
+
+  - transform: DataTo
+    params: { device: 'cuda' }
+
+  - transform: AdjacencyGraph
+    params:
+      k: ${datamodule.pcp_k_adjacency}
+      w: ${datamodule.pcp_w_adjacency}
+
+  - transform: ConnectIsolated
+    params: { k: 1 }
+
+  - transform: DataTo
+    params: { device: 'cpu' }
+
+  - transform: AddKeysTo
+    params:
+      keys: ${datamodule.partition_hf}
+      to: 'x'
+      delete_after: False
+
+  - transform: CutPursuitPartition
+    params:
+      regularization: ${datamodule.pcp_regularization}
+      spatial_weight: ${datamodule.pcp_spatial_weight}
+      k_adjacency: ${datamodule.pcp_k_adjacency}
+      cutoff: ${datamodule.pcp_cutoff}
+      iterations: ${datamodule.pcp_iterations}
+      parallel: True
+      verbose: False
+
+  - transform: NAGRemoveKeys
+    params:
+      level: 'all'
+      keys: 'x'
+
+  - transform: NAGTo
+    params: { device: 'cuda' }
+
+  - transform: SegmentFeatures
+    params:
+      n_min: 32
+      n_max: 128
+      keys: ${datamodule.segment_base_hf_preprocess}
+      mean_keys: ${datamodule.segment_mean_hf_preprocess}
+      std_keys: ${datamodule.segment_std_hf_preprocess}
+      strict: False
+
+  - transform: RadiusHorizontalGraph
+    params:
+      k_min: ${datamodule.graph_k_min}
+      k_max: ${datamodule.graph_k_max}
+      gap: ${datamodule.graph_gap}
+      se_ratio: ${datamodule.graph_se_ratio}
+      se_min: ${datamodule.graph_se_min}
+      cycles: ${datamodule.graph_cycles}
+      margin: ${datamodule.graph_margin}
+      chunk_size: ${datamodule.graph_chunk}
+      halfspace_filter: True
+      bbox_filter: True
+      target_pc_flip: True
+      source_pc_sort: False
+      keys: ['mean_off', 'std_off', 'mean_dist' ]
+
+  - transform: NAGTo
+    params: { device: 'cpu' }
+
+train_transform: null
+val_transform: ${datamodule.train_transform}
+test_transform: ${datamodule.val_transform}
+
+# ---- GPU train transforms (tiny, minimal) ----
+on_device_train_transform:
+  - transform: NodeSize
+
+  - transform: SampleSubNodes
+    params:
+      low: 0
+      high: 1
+      n_min: ${datamodule.sample_point_min}
+      n_max: ${datamodule.sample_point_max}
+
+  - transform: SampleRadiusSubgraphs
+    params:
+      r: ${datamodule.sample_graph_r}
+      k: ${datamodule.sample_graph_k}
+      i_level: 1
+      by_size: False
+      by_class: False
+      disjoint: ${datamodule.sample_graph_disjoint}
+
+  - transform: SampleSegments
+    params:
+      ratio: ${datamodule.sample_segment_ratio}
+      by_size: ${datamodule.sample_segment_by_size}
+      by_class: ${datamodule.sample_segment_by_class}
+
+  - transform: NAGRestrictSize
+    params:
+      level: '1+'
+      num_nodes: ${datamodule.max_num_nodes}
+
+  - transform: NAGCast
+
+  - transform: OnTheFlyHorizontalEdgeFeatures
+    params:
+      keys: ${datamodule.edge_hf}
+      use_mean_normal: False
+
+  - transform: NAGAddKeysTo
+    params:
+      level: 0
+      keys: ${eval:'ListConfig(${datamodule.point_hf})'}
+      to: 'x'
+
+  - transform: NAGAddKeysTo
+    params:
+      level: '1+'
+      keys: ${eval:'ListConfig(${datamodule.segment_hf})'}
+      to: 'x'
+
+  - transform: NAGAddSelfLoops
+
+# ---- GPU val/test transforms (minimal) ----
+on_device_val_transform:
+  - transform: NodeSize
+  - transform: NAGCast
+  - transform: OnTheFlyHorizontalEdgeFeatures
+    params:
+      keys: ${datamodule.edge_hf}
+      use_mean_normal: False
+  - transform: NAGAddKeysTo
+    params:
+      level: 0
+      keys: ${eval:'ListConfig(${datamodule.point_hf})'}
+      to: 'x'
+  - transform: NAGAddKeysTo
+    params:
+      level: '1+'
+      keys: ${eval:'ListConfig(${datamodule.segment_hf})'}
+      to: 'x'
+  - transform: NAGAddSelfLoops
+
+on_device_test_transform: ${datamodule.on_device_val_transform}
