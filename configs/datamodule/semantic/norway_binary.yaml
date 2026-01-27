@@ -1,0 +1,49 @@
+# VERY MINIMAL
+# @package datamodule
+defaults:
+  - /datamodule/semantic/default.yaml
+
+_target_: src.datamodules.norway_binary.NorwayBinaryDataModule
+
+# --- required by the framework ---
+num_classes: 2          # valid labels: 0..1, void label would be 2 (we won't use void now)
+stuff_classes: [0, 1]
+
+# Keep first run simple
+trainval: False
+val_on_test: False
+xy_tiling: 1
+
+# point features used for the partition
+partition_hf:
+  - 'linearity'
+  - 'planarity'
+  - 'scattering'
+  - 'elevation'
+
+# point features used for training
+point_hf:
+  #- 'intensity'
+  - 'linearity'
+  - 'planarity'
+  - 'scattering'
+  - 'verticality'
+  - 'elevation'
+
+segment_base_hf: []
+segment_mean_hf: []
+segment_std_hf: []
+
+edge_hf: ['mean_off', 'std_off', 'mean_dist']
+v_edge_hf: []
+
+# Memory guards for first attempt
+sample_graph_k: 1
+sample_point_max: 256
+
+
+#Simple transforms. copy DALES later
+on_device_train_transform: []
+on_device_val_transform: []
+on_device_test_transform: []
+
