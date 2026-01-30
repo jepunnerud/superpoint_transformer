@@ -12,7 +12,7 @@ stuff_classes: [0, 1]
 # Keep first run simple
 trainval: False
 val_on_test: False
-xy_tiling: 1
+xy_tiling: 2
 
 # point features used for the partition
 partition_hf:

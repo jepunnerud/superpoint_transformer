@@ -1,0 +1,39 @@
+# @package _global_
+
+# Hyperparameter search for Norway binary dataset with hilly terrain
+# Usage: python src/train.py -m hparams_search=norway_ground experiment=semantic/dales_11g datamodule=semantic/norway_binary paths.data_dir=/cluster/home/larshfle/datasets/norway_binary_testing trainer.max_epochs=30
+
+defaults:
+  - override /hydra/sweeper: optuna
+
+# Metric to optimize
+optimized_metric: "val/miou_best"
+
+hydra:
+  mode: "MULTIRUN"
+
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+
+    storage: null
+    study_name: norway_ground_tuning
+    n_jobs: 1
+    direction: maximize
+    n_trials: 15
+
+    sampler:
+      _target_: optuna.samplers.TPESampler
+      seed: 42
+      n_startup_trials: 5  # Random trials before Bayesian optimization
+
+    # Tune ground/elevation parameters for hilly terrain
+    params:
+      # Ground elevation detection
+      datamodule.ground_threshold: choice(3, 5, 8, 10, 15, 20)
+      datamodule.ground_scale: choice(10, 20, 30, 50)
+      
+      # Partition regularization (affects segment sizes)
+      # datamodule.pcp_regularization: choice([0.05,0.1,0.2], [0.1,0.2,0.3], [0.1,0.3,0.5])
+      
+      # Voxel size (preprocessing density)
+      # datamodule.voxel: choice(0.05, 0.1, 0.15)
